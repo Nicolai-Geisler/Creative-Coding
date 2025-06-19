@@ -1,17 +1,27 @@
 // Global variables
 ArrayList<District> districts = new ArrayList<District>();
+PImage smokeImg;
+PImage terrain;
+
 
 /*
 Runs once on startup; Initializes project
 */
 void setup() {
-    size(1024, 1024);
+    size(1024, 1024, P2D);
     smooth();
+    frameRate(60);
     background(255);
     
+    // Load image for particle system
+    smokeImg = loadImage("blackSmoke.png");
+    
+    terrain = createTerrain(2048, 2048);
+    
     // City center always in the middle of the screen
-    districts.add(new District(width/2, height/2, 3, false));
+    districts.add(new District(width/2, height/2, 3, false, true));
 }
+
 
 /*
 Runs every frame
@@ -19,15 +29,18 @@ Runs every frame
 void draw() {
   
   // Fading background (creates a trail)
-  fill(255, 20); // White with transparency
+  //fill(255, 20); // White with transparency
+  tint(255, 24);
+  image(terrain, 0, 0);
   noStroke();
-  rect(0, 0, width, height);
+  //rect(0, 0, width, height);
   
   // Draw the districts
   for(District district : districts) {
     district.drawDistrict();
   }
 }
+
 
 /*
 Handle user inputs
@@ -47,15 +60,71 @@ void mouseClicked() {
   
   if(canAddDistrict) {
     // Add a new district at the cursor location
-    districts.add(new District(mouseX, mouseY, 1, true));
+    districts.add(new District(mouseX, mouseY, 1, true, false));
   } else {
     println("Cannot add new district - distance too small");
   }
 }
 
 
+/*
+Utility functions
+*/
+PImage createTerrain(int scale_x, int scale_y){
+  
+  PImage img = createImage(scale_x, scale_y, RGB);
+  
+  // Set colors
+  color color1 = color(225, 225, 225);
+  color color2 = color(255, 255, 255);
+  color color3 = color(230, 230, 230);
+  // Perlin noise scale
+  int scale = 6;
+  
+  img.loadPixels();
+  
+  for (int i = 0; i < img.pixels.length; i++) {
+    int x = i % width;
+    int y = i / width;
+    
+    // Calculate normalized coordinates
+    float nx = (float)x/width;
+    float ny = (float)y/height;
+    
+    // Create seamless noise by using circular coordinates
+    float angle = nx * TWO_PI;
+    float x1 = cos(angle) * 0.5 + 0.5;
+    float y1 = sin(angle) * 0.5 + 0.5;
+    float z1 = ny;
+    
+    float noiseVal = noise(x1 * scale, y1 * scale, z1 * scale);
+    
+    // Three-color blend
+    color blended;
+    if (noiseVal < 0.4) {
+      blended = lerpColor(color1, color2, noiseVal * 2.5);
+    } else {
+      blended = lerpColor(color2, color3, (noiseVal - 0.4) * 1.67);
+    }
+    
+    img.pixels[i] = blended;
+  }
+  
+  img.updatePixels();
+  
+  return img;
+}
+
+// Return a random yellow-ish color
+color getColor() {
+  return color(255, random(200, 255), 0, 200);
+}
 
 
+
+/*
+  City districts
+*/
 class District {
   
   float position_x, position_y;
@@ -63,10 +132,10 @@ class District {
   ArrayList<Orbiter> orbiters = new ArrayList<Orbiter>();
   ArrayList<Connector> connectors = new ArrayList<Connector>();
   ArrayList<DistrictConnector> districtConnectors = new ArrayList<DistrictConnector>();
-  
+  SmokeEmitter smokeEmitter;
   Connector connector;
   
-  District(float position_x, float position_y, int ringCount, boolean drawDC) {
+  District(float position_x, float position_y, int ringCount, boolean drawDC, boolean hasSmoke) {
     this.position_x = position_x;
     this.position_y = position_y;
     this.orbiterCount = int(random(4, 6));
@@ -97,6 +166,11 @@ class District {
       for(int i=1; i <= connectorCount; i++){
         districtConnectors.add(new DistrictConnector(this.position_x, this.position_y));
       }
+    }
+    
+    // Has smoke particle system?
+    if(hasSmoke) {
+      smokeEmitter = new SmokeEmitter(this.position_x, this.position_y);
     }
   }
   
@@ -137,6 +211,11 @@ class District {
     fill(0, 0, 0);  // Black
     circle(this.position_x, this.position_y, this.diameter);
     
+    if(this.smokeEmitter != null) {
+      fill(color(255, random(200, 255), 0, 200));
+      circle(this.position_x, this.position_y, this.diameter/2);
+    }
+    
     // Draw the orbiters
     for(Orbiter orbiter : this.orbiters) {
       orbiter.update();
@@ -153,12 +232,25 @@ class District {
         dc.drawConnector();
       }
     }
+    
+    // Draw the particle system
+    if(this.smokeEmitter != null) {
+      
+      // Choose a random wind direction with slight offsets
+      float dx = map(random(width/2 + 256, width/2 + 300), 0, width, -0.2, 0.2);
+      PVector wind = new PVector(dx, 0);
+    
+      smokeEmitter.applyForce(wind);
+      smokeEmitter.run();
+      smokeEmitter.addParticle();
+    }
   }
   
 }
 
-
-
+/*
+District connectors
+*/
 class DistrictConnector {
   
   float startPositionX, startPositionY;
@@ -195,7 +287,7 @@ class DistrictConnector {
     } else {
       this.circlePos = 1;
     }
-    this.fillColor = color(255, random(200, 255), 0, 200);
+    this.fillColor = getColor();
   }
   
   void drawConnector() {
@@ -271,7 +363,7 @@ class DistrictConnector {
        if (this.circlePos >= 1) {
          this.circlePos = 1;
          this.forward = false;
-         this.fillColor = color(255, random(200, 255), 0, 200);
+         this.fillColor = getColor();
          this.speed = random(0.009, 0.015);
        }
      } else {
@@ -317,7 +409,9 @@ class DistrictConnector {
 }
 
 
-
+/*
+Connectors
+*/
 class Connector {
   
   ArrayList<PVector> trailPoints = new ArrayList<PVector>();
@@ -333,7 +427,7 @@ class Connector {
     this.trailSpeed = random(0.03, 0.06);
     this.lineLength = 40;
     this.size = 5;
-    this.fillColor = this.getColor();
+    this.fillColor = getColor();
     this.movingForward = 0.5 <= random(1);
     // Define the start and end points of the base line
     this.lineStart = new PVector(x + cos(this.angle) * (index*40), y + sin(this.angle) * (index*40));
@@ -380,13 +474,12 @@ class Connector {
     }
   }
   
-  // Return a random yellow-ish color
-  color getColor() {
-    return color(255, random(200, 255), 0, 200);
-  }
-  
 }
 
+
+/*
+Rings around city centers
+*/
 class Orbiter {
   
   PVector prevPos;
@@ -431,8 +524,88 @@ class Orbiter {
     
   }
   
-  // Return a random yellow-ish color
-  color getColor() {
-    return color(255, random(200, 255), 0, 200);
+}
+
+
+
+/*
+Smoke particle system
+*/
+
+class SmokeEmitter {
+  
+  ArrayList<SmokeParticle> smokeParticle;
+  PVector origin;
+  
+  SmokeEmitter(float x, float y) {
+    
+    this.origin = new PVector(x, y);
+    this.smokeParticle = new ArrayList<SmokeParticle>();
+  }
+  
+  void addParticle() {
+    this.smokeParticle.add(new SmokeParticle(this.origin.x, this.origin.y));
+  }
+  
+  void applyForce(PVector force) {
+    
+    for(int i = smokeParticle.size() - 1; i >= 0; i--) {
+      SmokeParticle particle = smokeParticle.get(i);
+      particle.applyForce(force);
+    }
+  }
+  
+  void run() {
+  
+    for(int i = smokeParticle.size() - 1; i >= 0; i--) {
+  
+      SmokeParticle particle = smokeParticle.get(i);
+      particle.run();
+      if(particle.isDead()) {
+        smokeParticle.remove(i);
+      }
+    }
+  }
+}
+
+class SmokeParticle {
+  
+  PVector position, acceleration, velocity;
+  int lifespan;
+  
+  SmokeParticle(float x, float y) {
+    this.position = new PVector(x, y);
+    this.acceleration = new PVector(random(-0.4,0.4), random(-0.4,0));
+    float vx = randomGaussian();
+    float vy = randomGaussian();
+    this.velocity = new PVector(vx,vy);
+    this.lifespan = 127;
+  }
+
+  void update() {
+    this.velocity.add(this.acceleration);
+    this.position.add(this.velocity);
+    this.lifespan -= 6;
+  }
+
+  void show() {
+
+    imageMode(CENTER);
+    tint(color(255,255,255,200), this.lifespan);
+    image(smokeImg, this.position.x, this.position.y, 64, 64);
+  }
+  
+  void run() {
+    
+    this.update();
+    this.show();
+  }
+  
+  void applyForce(PVector force) {
+    this.acceleration.add(force);
+  }
+  
+  boolean isDead() {
+    return (this.lifespan < 0);
   }
 }
