@@ -16,7 +16,7 @@ void setup() {
     // Load image for particle system
     smokeImg = loadImage("blackSmoke.png");
     
-    terrain = createTerrain(2048, 2048);
+    terrain = createTerrain(width*2, height*2);
     
     // City center always in the middle of the screen
     districts.add(new District(width/2, height/2, 3, false, true));
